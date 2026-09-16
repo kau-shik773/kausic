@@ -49,14 +49,14 @@ adblock_stats = {
 }
 
 ydl_opts = {
-    "format": "bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best",
+    "format": "bestaudio/best",
     "quiet": True,
     "no_warnings": True,
     "extract_flat": False,
     "skip_download": True,
     "extractor_args": {
         "youtube": {
-            "player_client": ["android", "web"]
+            "player_client": ["visionos", "android", "web"]
         }
     }
 }
@@ -80,12 +80,12 @@ def prefetch_stream(video_id):
     if not video_id or video_id in stream_cache:
         return
     try:
-        url = f"https://www.youtube.com/watch?v={video_id}"
+        url = f"https://music.youtube.com/watch?v={video_id}"
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             stream_url = info.get("url")
             if not stream_url and "formats" in info:
-                audio_formats = [f for f in info["formats"] if f.get("acodec") != "none" and f.get("vcodec") == "none"]
+                audio_formats = [f for f in info["formats"] if f.get("acodec") != "none" and f.get("url")]
                 if audio_formats:
                     audio_formats.sort(key=lambda x: x.get("abr", 0) or 0, reverse=True)
                     stream_url = audio_formats[0].get("url")
@@ -305,13 +305,13 @@ def get_stream():
             })
 
     try:
-        url = f"https://www.youtube.com/watch?v={video_id}"
+        url = f"https://music.youtube.com/watch?v={video_id}"
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             stream_url = info.get("url")
             
             if not stream_url and "formats" in info:
-                audio_formats = [f for f in info["formats"] if f.get("acodec") != "none" and f.get("vcodec") == "none"]
+                audio_formats = [f for f in info["formats"] if f.get("acodec") != "none" and f.get("url")]
                 if audio_formats:
                     audio_formats.sort(key=lambda x: x.get("abr", 0) or 0, reverse=True)
                     stream_url = audio_formats[0].get("url")
@@ -353,12 +353,12 @@ def stream_raw():
         stream_url = stream_cache[video_id]["url"]
     else:
         try:
-            url = f"https://www.youtube.com/watch?v={video_id}"
+            url = f"https://music.youtube.com/watch?v={video_id}"
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 stream_url = info.get("url")
                 if not stream_url and "formats" in info:
-                    audio_formats = [f for f in info["formats"] if f.get("acodec") != "none" and f.get("vcodec") == "none"]
+                    audio_formats = [f for f in info["formats"] if f.get("acodec") != "none" and f.get("url")]
                     if audio_formats:
                         audio_formats.sort(key=lambda x: x.get("abr", 0) or 0, reverse=True)
                         stream_url = audio_formats[0].get("url")
