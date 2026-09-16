@@ -192,22 +192,37 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const data = await fetchApi<{ stream_url?: string; proxy_url?: string }>(`/stream?id=${track.videoId}`);
 
       if (data && audioRef.current) {
-        // Construct full URL to CORS-enabled stream_raw proxy
         const apiBase = getApiBase();
-        const targetUrl = data.proxy_url
-          ? `${apiBase.replace('/api', '')}${data.proxy_url}`
-          : (data.stream_url || '');
+        const primaryUrl = data.stream_url;
+        const proxyUrl = data.proxy_url ? `${apiBase.replace('/api', '')}${data.proxy_url}` : '';
 
-        if (!targetUrl) {
-          throw new Error('No stream URL available');
+        const tryPlayUrl = async (url: string): Promise<boolean> => {
+          try {
+            console.log('[KAUSIC Audio Engine] Attempting stream:', url);
+            if (!audioRef.current) return false;
+            audioRef.current.src = url;
+            audioRef.current.currentTime = 0;
+            await audioEngine.resume();
+            await audioRef.current.play();
+            setIsPlaying(true);
+            return true;
+          } catch (e) {
+            console.warn('[KAUSIC Audio Engine] Stream URL failed, trying fallback:', e);
+            return false;
+          }
+        };
+
+        let played = false;
+        if (primaryUrl) {
+          played = await tryPlayUrl(primaryUrl);
         }
-
-        console.log('[KAUSIC Audio Engine] Loading CORS audio stream:', targetUrl);
-        audioRef.current.src = targetUrl;
-        audioRef.current.currentTime = 0;
-        await audioEngine.resume();
-        await audioRef.current.play();
-        setIsPlaying(true);
+        if (!played && proxyUrl) {
+          console.log('[KAUSIC Audio Engine] Falling back to backend audio proxy stream...');
+          played = await tryPlayUrl(proxyUrl);
+        }
+        if (!played) {
+          throw new Error('All audio stream playback attempts failed');
+        }
         fetchAdblockStats();
       }
     } catch (err) {
