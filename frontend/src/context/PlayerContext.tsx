@@ -189,16 +189,59 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       // 2. Fetch live clean audio stream from backend
-      const data = await fetchApi<{ stream_url?: string; proxy_url?: string }>(`/stream?id=${track.videoId}`);
+      let streamUrl: string | undefined;
+      let proxyUrl: string | undefined;
 
-      if (data && audioRef.current) {
-        const apiBase = getApiBase();
-        const primaryUrl = data.stream_url;
-        const proxyUrl = data.proxy_url ? `${apiBase.replace('/api', '')}${data.proxy_url}` : '';
+      try {
+        const data = await fetchApi<{ stream_url?: string; proxy_url?: string }>(`/stream?id=${track.videoId}`);
+        if (data?.stream_url) {
+          streamUrl = data.stream_url;
+          proxyUrl = data.proxy_url ? `${getApiBase().replace('/api', '')}${data.proxy_url}` : undefined;
+        }
+      } catch (e) {
+        console.warn('[KAUSIC Audio Engine] Cloud backend stream fetch delayed or failed:', e);
+      }
 
+      // 3. Fallback: direct mobile-to-InnerTube resolution if cloud endpoint is slow/unavailable
+      if (!streamUrl) {
+        console.log('[KAUSIC Audio Engine] Engaging native client InnerTube resolver for:', track.videoId);
+        try {
+          const { CapacitorHttp } = await import('@capacitor/core');
+          const response = await CapacitorHttp.post({
+            url: 'https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqaeukImAQ26irlAyFullm2-qc',
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip'
+            },
+            data: {
+              context: {
+                client: {
+                  clientName: 'ANDROID',
+                  clientVersion: '20.10.38',
+                  androidSdkVersion: 30,
+                  hl: 'en',
+                  gl: 'IN'
+                }
+              },
+              videoId: track.videoId
+            }
+          });
+          const formats = response.data?.streamingData?.adaptiveFormats || response.data?.streamingData?.formats || [];
+          const audio = formats.filter((f: any) => f.mimeType?.includes('audio') && f.url);
+          if (audio.length > 0) {
+            audio.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+            streamUrl = audio[0].url;
+            console.log('[KAUSIC Audio Engine] Native mobile InnerTube stream resolved successfully!');
+          }
+        } catch (clientErr) {
+          console.warn('[KAUSIC Audio Engine] Native InnerTube resolver error:', clientErr);
+        }
+      }
+
+      if (audioRef.current && (streamUrl || proxyUrl)) {
         const tryPlayUrl = async (url: string): Promise<boolean> => {
           try {
-            console.log('[KAUSIC Audio Engine] Attempting stream:', url);
+            console.log('[KAUSIC Audio Engine] Loading audio stream:', url.slice(0, 60) + '...');
             if (!audioRef.current) return false;
             audioRef.current.src = url;
             audioRef.current.currentTime = 0;
@@ -213,8 +256,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         };
 
         let played = false;
-        if (primaryUrl) {
-          played = await tryPlayUrl(primaryUrl);
+        if (streamUrl) {
+          played = await tryPlayUrl(streamUrl);
         }
         if (!played && proxyUrl) {
           console.log('[KAUSIC Audio Engine] Falling back to backend audio proxy stream...');
