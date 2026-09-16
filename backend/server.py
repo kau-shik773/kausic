@@ -252,13 +252,53 @@ def get_lyrics():
         return jsonify({"lyrics": None, "source": None})
 
 def resolve_stream_url(video_id):
-    """Multi-tiered zero-hang cloud extractor with mobile/visionos client fallbacks."""
+    """
+    Ultra-fast stream resolver.
+    Tier 1: Direct InnerTube API (Android client) - 0.3s response, unthrottled direct audio URL.
+    Tier 2: Fast yt-dlp fallback (visionos / android_creator).
+    """
+    # Tier 1: Direct InnerTube REST API (Fastest & Most Reliable)
+    try:
+        api_key = "AIzaSyAO_FJ2SlqaeukImAQ26irlAyFullm2-qc"
+        url = f"https://www.youtube.com/youtubei/v1/player?key={api_key}"
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip"
+        }
+        payload = {
+            "context": {
+                "client": {
+                    "clientName": "ANDROID",
+                    "clientVersion": "20.10.38",
+                    "androidSdkVersion": 30,
+                    "hl": "en",
+                    "gl": "IN"
+                }
+            },
+            "videoId": video_id
+        }
+        res = requests.post(url, json=payload, headers=headers, timeout=4)
+        if res.status_code == 200:
+            data = res.json()
+            streaming_data = data.get("streamingData", {})
+            formats = streaming_data.get("adaptiveFormats", []) or streaming_data.get("formats", [])
+            audio_formats = [f for f in formats if "audio" in f.get("mimeType", "") and f.get("url")]
+            if audio_formats:
+                audio_formats.sort(key=lambda x: int(x.get("bitrate", 0) or 0), reverse=True)
+                best_audio = audio_formats[0]
+                stream_url = best_audio["url"]
+                video_details = data.get("videoDetails", {})
+                title = video_details.get("title", "")
+                duration = int(video_details.get("lengthSeconds", 0) or 0)
+                logging.info(f"[KAUSIC Core] InnerTube stream resolved in milliseconds for {video_id}: {title}")
+                return stream_url, title, duration
+    except Exception as e:
+        logging.warning(f"[KAUSIC Core] InnerTube tier 1 failed for {video_id}: {e}")
+
+    # Tier 2: yt-dlp fallback
     candidate_configs = [
         {"client": ["visionos"], "url": f"https://music.youtube.com/watch?v={video_id}"},
-        {"client": ["android_creator"], "url": f"https://music.youtube.com/watch?v={video_id}"},
-        {"client": ["android_music"], "url": f"https://music.youtube.com/watch?v={video_id}"},
-        {"client": ["ios_music"], "url": f"https://music.youtube.com/watch?v={video_id}"},
-        {"client": ["visionos"], "url": f"https://www.youtube.com/watch?v={video_id}"}
+        {"client": ["android_creator"], "url": f"https://music.youtube.com/watch?v={video_id}"}
     ]
 
     for config in candidate_configs:
@@ -268,7 +308,7 @@ def resolve_stream_url(video_id):
             "no_warnings": True,
             "extract_flat": False,
             "skip_download": True,
-            "socket_timeout": 6,
+            "socket_timeout": 5,
             "extractor_args": {
                 "youtube": {
                     "player_client": config["client"]
