@@ -174,15 +174,6 @@ def get_category_feed(category):
                 break
         
         feed_cache[cat_key] = {"data": collected[:50], "timestamp": now}
-
-        # Pre-warm top 3 tracks in background for instantaneous zero-wait playback
-        def warm_top_tracks(tracks):
-            for t in tracks:
-                vid = t.get("videoId") or t.get("browseId")
-                if vid:
-                    prefetch_stream(vid)
-        threading.Thread(target=warm_top_tracks, args=(collected[:3],), daemon=True).start()
-
         return jsonify({"category": cat_key, "results": collected[:50], "cached": False})
     except Exception as e:
         logging.error(f"Error fetching feed for category '{cat_key}': {e}")
