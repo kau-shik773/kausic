@@ -37,7 +37,7 @@ ydl_opts = {
     "skip_download": True,
     "extractor_args": {
         "youtube": {
-            "player_client": ["android", "ios", "mweb", "web_creator"]
+            "player_client": ["android"]
         }
     }
 }
