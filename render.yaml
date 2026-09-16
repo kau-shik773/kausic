@@ -1,9 +1,9 @@
-﻿services:
+services:
   - type: web
     name: kausic-sound-api
     env: python
     region: oregon
     plan: free
     buildCommand: pip install -r backend/requirements.txt
-    startCommand: gunicorn --chdir backend --workers 4 --timeout 120 --bind 0.0.0.0: server:app
+    startCommand: gunicorn --chdir backend --workers 4 --timeout 120 --bind 0.0.0.0:$PORT server:app
     autoDeploy: true
