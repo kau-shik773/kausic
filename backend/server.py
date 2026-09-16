@@ -14,23 +14,6 @@ import requests
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# Ensure Deno JS runtime is present on Render Linux cloud for yt-dlp EJS decryption
-def ensure_deno():
-    if sys.platform != "win32":
-        deno_dir = os.path.expanduser("~/.deno/bin")
-        deno_path = os.path.join(deno_dir, "deno")
-        if not shutil.which("deno") and not os.path.exists(deno_path):
-            try:
-                logging.info("[KAUSIC Engine] Auto-installing Deno JS engine for cloud streaming...")
-                subprocess.run("curl -fsSL https://deno.land/install.sh | sh", shell=True, timeout=60, check=False)
-            except Exception as e:
-                logging.warning(f"[KAUSIC Engine] Deno auto-install exception: {e}")
-        if os.path.exists(deno_dir):
-            os.environ["PATH"] = f"{deno_dir}:{os.environ.get('PATH', '')}"
-            logging.info(f"[KAUSIC Engine] Deno active in PATH: {deno_dir}")
-
-ensure_deno()
-
 app = Flask(__name__)
 CORS(app)
 
@@ -54,9 +37,10 @@ ydl_opts = {
     "no_warnings": True,
     "extract_flat": False,
     "skip_download": True,
+    "socket_timeout": 6,
     "extractor_args": {
         "youtube": {
-            "player_client": ["visionos", "android", "web"]
+            "player_client": ["visionos", "android_creator"]
         }
     }
 }
@@ -80,22 +64,14 @@ def prefetch_stream(video_id):
     if not video_id or video_id in stream_cache:
         return
     try:
-        url = f"https://music.youtube.com/watch?v={video_id}"
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            stream_url = info.get("url")
-            if not stream_url and "formats" in info:
-                audio_formats = [f for f in info["formats"] if f.get("acodec") != "none" and f.get("url")]
-                if audio_formats:
-                    audio_formats.sort(key=lambda x: x.get("abr", 0) or 0, reverse=True)
-                    stream_url = audio_formats[0].get("url")
-            if stream_url:
-                stream_cache[video_id] = {
-                    "url": stream_url,
-                    "expiry": time.time() + (3.5 * 3600),
-                    "title": info.get("title", "")
-                }
-                logging.info(f"[Instant Pre-warm] Cached stream for {video_id}: {info.get('title')}")
+        stream_url, title, _ = resolve_stream_url(video_id)
+        if stream_url:
+            stream_cache[video_id] = {
+                "url": stream_url,
+                "expiry": time.time() + (3.5 * 3600),
+                "title": title
+            }
+            logging.info(f"[Instant Pre-warm] Cached stream for {video_id}: {title}")
     except Exception as e:
         logging.debug(f"Pre-warm failed for {video_id}: {e}")
 
@@ -275,6 +251,47 @@ def get_lyrics():
         logging.warning(f"Lyrics not available for {video_id}: {e}")
         return jsonify({"lyrics": None, "source": None})
 
+def resolve_stream_url(video_id):
+    """Multi-tiered zero-hang cloud extractor with mobile/visionos client fallbacks."""
+    candidate_configs = [
+        {"client": ["visionos"], "url": f"https://music.youtube.com/watch?v={video_id}"},
+        {"client": ["android_creator"], "url": f"https://music.youtube.com/watch?v={video_id}"},
+        {"client": ["android_music"], "url": f"https://music.youtube.com/watch?v={video_id}"},
+        {"client": ["ios_music"], "url": f"https://music.youtube.com/watch?v={video_id}"},
+        {"client": ["visionos"], "url": f"https://www.youtube.com/watch?v={video_id}"}
+    ]
+
+    for config in candidate_configs:
+        opts = {
+            "format": "bestaudio/best",
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": False,
+            "skip_download": True,
+            "socket_timeout": 6,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": config["client"]
+                }
+            }
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(config["url"], download=False)
+                stream_url = info.get("url")
+                if not stream_url and "formats" in info:
+                    audio_formats = [f for f in info["formats"] if f.get("acodec") != "none" and f.get("url")]
+                    if audio_formats:
+                        audio_formats.sort(key=lambda x: x.get("abr", 0) or 0, reverse=True)
+                        stream_url = audio_formats[0].get("url")
+                if stream_url:
+                    return stream_url, info.get("title", ""), info.get("duration", 0)
+        except Exception as e:
+            logging.warning(f"Resolver attempt {config['client']} failed for {video_id}: {e}")
+            continue
+
+    return None, "", 0
+
 @app.route("/api/stream", methods=["GET"])
 def get_stream():
     video_id = request.args.get("id", "").strip()
@@ -295,42 +312,28 @@ def get_stream():
                 "cached": True
             })
 
-    try:
-        url = f"https://music.youtube.com/watch?v={video_id}"
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            stream_url = info.get("url")
-            
-            if not stream_url and "formats" in info:
-                audio_formats = [f for f in info["formats"] if f.get("acodec") != "none" and f.get("url")]
-                if audio_formats:
-                    audio_formats.sort(key=lambda x: x.get("abr", 0) or 0, reverse=True)
-                    stream_url = audio_formats[0].get("url")
+    stream_url, title, duration = resolve_stream_url(video_id)
+    if not stream_url:
+        return jsonify({"error": "Could not resolve audio stream"}), 500
 
-            if not stream_url:
-                return jsonify({"error": "Could not extract stream URL"}), 500
+    stream_cache[video_id] = {
+        "url": stream_url,
+        "expiry": now + (3.5 * 3600),
+        "title": title
+    }
 
-            stream_cache[video_id] = {
-                "url": stream_url,
-                "expiry": now + (3.5 * 3600),
-                "title": info.get("title", "")
-            }
+    adblock_stats["bypassed_interstitials"] += 1
+    adblock_stats["blocked_ad_requests"] += 3
+    adblock_stats["saved_bandwidth_mb"] = round(adblock_stats["saved_bandwidth_mb"] + 4.5, 1)
 
-            adblock_stats["bypassed_interstitials"] += 1
-            adblock_stats["blocked_ad_requests"] += 3
-            adblock_stats["saved_bandwidth_mb"] = round(adblock_stats["saved_bandwidth_mb"] + 4.5, 1)
-
-            return jsonify({
-                "stream_url": stream_url,
-                "proxy_url": f"/api/stream_raw?id={video_id}",
-                "video_id": video_id,
-                "title": info.get("title"),
-                "duration": info.get("duration"),
-                "cached": False
-            })
-    except Exception as e:
-        logging.error(f"Failed to extract stream for {video_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "stream_url": stream_url,
+        "proxy_url": f"/api/stream_raw?id={video_id}",
+        "video_id": video_id,
+        "title": title,
+        "duration": duration,
+        "cached": False
+    })
 
 @app.route("/api/stream_raw", methods=["GET"])
 def stream_raw():
@@ -343,25 +346,13 @@ def stream_raw():
     if video_id in stream_cache and now < stream_cache[video_id]["expiry"]:
         stream_url = stream_cache[video_id]["url"]
     else:
-        try:
-            url = f"https://music.youtube.com/watch?v={video_id}"
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                stream_url = info.get("url")
-                if not stream_url and "formats" in info:
-                    audio_formats = [f for f in info["formats"] if f.get("acodec") != "none" and f.get("url")]
-                    if audio_formats:
-                        audio_formats.sort(key=lambda x: x.get("abr", 0) or 0, reverse=True)
-                        stream_url = audio_formats[0].get("url")
-                if stream_url:
-                    stream_cache[video_id] = {
-                        "url": stream_url,
-                        "expiry": now + (3.5 * 3600),
-                        "title": info.get("title", "")
-                    }
-        except Exception as e:
-            logging.error(f"Failed to resolve stream for stream_raw {video_id}: {e}")
-            return Response(f"Resolution failed: {e}", status=500)
+        stream_url, title, _ = resolve_stream_url(video_id)
+        if stream_url:
+            stream_cache[video_id] = {
+                "url": stream_url,
+                "expiry": now + (3.5 * 3600),
+                "title": title
+            }
 
     if not stream_url:
         return Response("Audio stream not found", status=404)
