@@ -1,15 +1,11 @@
 import type { Track, PlaylistSummary } from '../types';
 
-// Production Cloud Endpoint (live on Render cloud)
+// Production Cloud Endpoint (STRICTLY CLOUD-ONLY)
 export const DEFAULT_CLOUD_API = 'https://kausic.onrender.com/api';
-const storedCloudApi = typeof window !== 'undefined' ? localStorage.getItem('kausic_api_base') : null;
 
-// Candidate endpoints: Cloud primary -> Local LAN IP -> Localhost fallback
+// Candidate endpoints: Cloud server strictly
 const CANDIDATE_HOSTS = [
-  storedCloudApi || DEFAULT_CLOUD_API,
-  'http://192.168.53.36:5050/api',
-  'http://127.0.0.1:5050/api',
-  'http://localhost:5050/api'
+  DEFAULT_CLOUD_API
 ];
 
 let activeApiBase = CANDIDATE_HOSTS[0];

@@ -4,6 +4,8 @@ import time
 import json
 import logging
 import threading
+import shutil
+import subprocess
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from ytmusicapi import YTMusic
@@ -11,6 +13,23 @@ import yt_dlp
 import requests
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+# Ensure Deno JS runtime is present on Render Linux cloud for yt-dlp EJS decryption
+def ensure_deno():
+    if sys.platform != "win32":
+        deno_dir = os.path.expanduser("~/.deno/bin")
+        deno_path = os.path.join(deno_dir, "deno")
+        if not shutil.which("deno") and not os.path.exists(deno_path):
+            try:
+                logging.info("[KAUSIC Engine] Auto-installing Deno JS engine for cloud streaming...")
+                subprocess.run("curl -fsSL https://deno.land/install.sh | sh", shell=True, timeout=60, check=False)
+            except Exception as e:
+                logging.warning(f"[KAUSIC Engine] Deno auto-install exception: {e}")
+        if os.path.exists(deno_dir):
+            os.environ["PATH"] = f"{deno_dir}:{os.environ.get('PATH', '')}"
+            logging.info(f"[KAUSIC Engine] Deno active in PATH: {deno_dir}")
+
+ensure_deno()
 
 app = Flask(__name__)
 CORS(app)
@@ -37,7 +56,7 @@ ydl_opts = {
     "skip_download": True,
     "extractor_args": {
         "youtube": {
-            "player_client": ["android"]
+            "player_client": ["android", "web"]
         }
     }
 }
