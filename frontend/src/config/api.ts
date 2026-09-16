@@ -1,7 +1,7 @@
 import type { Track, PlaylistSummary } from '../types';
 
-// Production Cloud Endpoint (set default render/cloud url or override in settings)
-export const DEFAULT_CLOUD_API = 'https://kausic-sound-api.onrender.com/api';
+// Production Cloud Endpoint (live on Render cloud)
+export const DEFAULT_CLOUD_API = 'https://kausic.onrender.com/api';
 const storedCloudApi = typeof window !== 'undefined' ? localStorage.getItem('kausic_api_base') : null;
 
 // Candidate endpoints: Cloud primary -> Local LAN IP -> Localhost fallback

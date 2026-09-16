@@ -35,7 +35,26 @@ ydl_opts = {
     "no_warnings": True,
     "extract_flat": False,
     "skip_download": True,
+    "extractor_args": {
+        "youtube": {
+            "player_client": ["android", "ios", "mweb", "web_creator"]
+        }
+    }
 }
+
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({
+        "system": "KAUSIC Core Acoustic Cloud Engine",
+        "status": "online",
+        "author": "Designed by Kaushik",
+        "endpoints": {
+            "health": "/api/health",
+            "search": "/api/search?q=<query>",
+            "feed": "/api/feed/<category>",
+            "stream": "/api/stream?id=<video_id>"
+        }
+    })
 
 def prefetch_stream(video_id):
     """Background extractor to pre-warm streams for instant 0ms playback."""
