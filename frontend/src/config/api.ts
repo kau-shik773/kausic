@@ -1,7 +1,12 @@
 import type { Track, PlaylistSummary } from '../types';
 
-// Candidate endpoints for local PC server
+// Production Cloud Endpoint (set default render/cloud url or override in settings)
+export const DEFAULT_CLOUD_API = 'https://kausic-sound-api.onrender.com/api';
+const storedCloudApi = typeof window !== 'undefined' ? localStorage.getItem('kausic_api_base') : null;
+
+// Candidate endpoints: Cloud primary -> Local LAN IP -> Localhost fallback
 const CANDIDATE_HOSTS = [
+  storedCloudApi || DEFAULT_CLOUD_API,
   'http://192.168.53.36:5050/api',
   'http://127.0.0.1:5050/api',
   'http://localhost:5050/api'
@@ -12,7 +17,10 @@ let activeApiBase = CANDIDATE_HOSTS[0];
 export const getApiBase = () => activeApiBase;
 
 export const setApiBase = (url: string) => {
-  activeApiBase = url;
+  activeApiBase = url.replace(/\/+$/, '');
+  try {
+    localStorage.setItem('kausic_api_base', activeApiBase);
+  } catch {}
 };
 
 // Auto-detect fastest responsive backend
